@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { TonConnectButton, useTonConnectUI } from '@tonconnect/ui-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { TonConnectUI, ConnectedWallet } from '@tonconnect/ui';
 import { beginCell, toNano } from '@ton/core';
 import TonWeb from 'tonweb';
 
+const BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:3000';
+
 function App() {
-  const [tonConnectUI] = useTonConnectUI();
+  const [tonConnectUI, setTonConnectUI] = useState<TonConnectUI | null>(null);
+  const tonConnectUIRef = useRef<TonConnectUI | null>(null);
   const [result1, setResult1] = useState('');
   const [result2, setResult2] = useState('');
   const [isTestnet, setIsTestnet] = useState(false);
@@ -12,9 +15,42 @@ function App() {
   const [walletAddress, setWalletAddress] = useState('');
   const [networkId, setNetworkId] = useState('');
 
+  // Initialize TonConnectUI after component mounts
+  useEffect(() => {
+    // Prevent double initialization in React Strict Mode
+    if (tonConnectUIRef.current) {
+      return;
+    }
+
+    const ui = new TonConnectUI({
+      manifestUrl: `${BASE_URL}/tonconnect-manifest.json`,
+      buttonRootId: 'ton-connect'
+    });
+    
+    tonConnectUIRef.current = ui;
+    setTonConnectUI(ui);
+
+    return () => {
+      // Cleanup on unmount
+      if (tonConnectUIRef.current) {
+        try {
+          // Only disconnect if wallet is connected
+          if (tonConnectUIRef.current.wallet) {
+            tonConnectUIRef.current.disconnect();
+          }
+        } catch (error) {
+          console.log('Cleanup error (safe to ignore):', error);
+        }
+        tonConnectUIRef.current = null;
+      }
+    };
+  }, []);
+
   // Subscribe to wallet connection events
   useEffect(() => {
-    const unsubscribe = tonConnectUI.onStatusChange(wallet => {
+    if (!tonConnectUI) return;
+
+    const unsubscribe = tonConnectUI.onStatusChange((wallet: ConnectedWallet | null) => {
       console.log('Wallet status changed:', wallet);
       
       if (wallet) {
@@ -43,6 +79,10 @@ function App() {
 
   const sendWithTonCore = async () => {
     try {
+      if (!tonConnectUI) {
+        throw new Error('TonConnect UI not initialized');
+      }
+
       const wallet = tonConnectUI.wallet;
       if (!wallet) {
         throw new Error('Please connect your wallet first');
@@ -54,7 +94,7 @@ function App() {
         throw new Error('Please switch to testnet in your wallet');
       }
 
-      const msg = "Hello, TON! from ton/core!";
+      const msg = "Hello, TON!";
       const payload = beginCell()
         .storeUint(0, 32) // op = 0
         .storeStringTail(msg)
@@ -87,6 +127,10 @@ function App() {
 
   const sendWithTonWeb = async () => {
     try {
+      if (!tonConnectUI) {
+        throw new Error('TonConnect UI not initialized');
+      }
+
       const wallet = tonConnectUI.wallet;
       if (!wallet) {
         throw new Error('Please connect your wallet first');
@@ -98,7 +142,7 @@ function App() {
         throw new Error('Please switch to testnet in your wallet');
       }
 
-      const msg = "Hello, TON! from tonweb!";
+      const msg = "Hello, TON!";
       const tonweb = new TonWeb();
       
       // Create a proper cell structure using TonWeb's cell builder
@@ -130,13 +174,13 @@ function App() {
     }
   };
 
-  const isWalletConnected = tonConnectUI.wallet !== null;
+  const isWalletConnected = tonConnectUI?.wallet !== null;
   const canSendTransaction = isWalletConnected && isTestnet;
 
   return (
     <div style={{ padding: 20 }}>
       <h1>TON SDK Compare</h1>
-      <TonConnectButton />
+      <div id="ton-connect"></div>
       <div style={{ marginTop: 20 }}>
         <button 
           onClick={sendWithTonCore} 
